@@ -1,0 +1,1042 @@
+# Bitmarks Schema Specification v1.0
+# OpenAPI 3.1 / AsyncAPI compatible
+
+openapi: 3.1.0
+info:
+  title: Bitmarks API
+  version: 1.0.0
+  description: |
+    Distributed bookmark management system API specification.
+    This API provides comprehensive bookmark management with AI-powered
+    search, synchronization, and content enhancement capabilities.
+  contact:
+    name: Daniel Bodnar
+    email: daniel.bodnar@gmail.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.bitmarks.io
+    description: Production API
+  - url: https://staging.api.bitmarks.io
+    description: Staging API
+  - url: http://localhost:8787
+    description: Local development
+
+# ====================
+# Data Models
+# ====================
+components:
+  schemas:
+    # Core bookmark entity
+    Bookmark:
+      type: object
+      required:
+        - id
+        - url
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique bookmark identifier
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        
+        url:
+          type: string
+          format: uri
+          description: Original bookmark URL
+          example: "https://example.com/article"
+        
+        normalizedUrl:
+          type: string
+          format: uri
+          description: Normalized URL for deduplication
+          example: "https://example.com/article"
+        
+        title:
+          type: string
+          description: Page title
+          maxLength: 500
+          example: "Understanding WebAssembly"
+        
+        description:
+          type: string
+          description: Page description or summary
+          maxLength: 2000
+          example: "A comprehensive guide to WebAssembly..."
+        
+        content:
+          type: string
+          description: Cached page content (text only)
+          maxLength: 1000000
+        
+        contentHash:
+          type: string
+          description: SHA-256 hash of content for change detection
+          example: "e3b0c44298fc1c149afbf4c8996fb924"
+        
+        tags:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-z0-9-]+$"
+            maxLength: 50
+          description: Associated tags
+          example: ["webassembly", "programming", "tutorial"]
+        
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Custom metadata fields
+          example:
+            author: "John Doe"
+            publishDate: "2024-01-15"
+            readingTime: 12
+        
+        favicon:
+          type: string
+          format: uri
+          description: Favicon URL
+          example: "https://example.com/favicon.ico"
+        
+        screenshot:
+          type: string
+          format: uri
+          description: Page screenshot URL (R2 storage)
+          example: "https://r2.bitmarks.io/screenshots/550e8400.jpg"
+        
+        embedding:
+          type: array
+          items:
+            type: number
+            format: float
+          minItems: 768
+          maxItems: 768
+          description: Vector embedding for semantic search
+        
+        createdAt:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2024-01-01T12:00:00Z"
+        
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2024-01-02T15:30:00Z"
+        
+        accessedAt:
+          type: string
+          format: date-time
+          description: Last access timestamp
+          example: "2024-01-03T09:15:00Z"
+        
+        archivedAt:
+          type: string
+          format: date-time
+          description: Archive timestamp (if archived)
+          nullable: true
+        
+        syncMetadata:
+          $ref: '#/components/schemas/SyncMetadata'
+        
+        stats:
+          $ref: '#/components/schemas/BookmarkStats'
+        
+        ai:
+          $ref: '#/components/schemas/AIMetadata'
+
+    # Sync metadata for CRDT
+    SyncMetadata:
+      type: object
+      required:
+        - deviceId
+        - syncVersion
+        - vectorClock
+      properties:
+        deviceId:
+          type: string
+          description: Device/client identifier
+          example: "laptop-550e8400"
+        
+        syncVersion:
+          type: integer
+          description: Incremental sync version
+          minimum: 0
+          example: 42
+        
+        vectorClock:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Vector clock for CRDT sync
+          example:
+            "device1": 10
+            "device2": 8
+        
+        lastSyncedAt:
+          type: string
+          format: date-time
+          description: Last synchronization timestamp
+        
+        deleted:
+          type: boolean
+          default: false
+          description: Soft delete flag
+
+    # Bookmark statistics
+    BookmarkStats:
+      type: object
+      properties:
+        viewCount:
+          type: integer
+          minimum: 0
+          description: Number of times accessed
+          example: 25
+        
+        shareCount:
+          type: integer
+          minimum: 0
+          description: Number of times shared
+          example: 3
+        
+        clickthrough:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Clickthrough rate from search
+          example: 0.75
+        
+        dwellTime:
+          type: integer
+          description: Average time spent (seconds)
+          example: 180
+
+    # AI-generated metadata
+    AIMetadata:
+      type: object
+      properties:
+        summary:
+          type: string
+          maxLength: 500
+          description: AI-generated summary
+        
+        suggestedTags:
+          type: array
+          items:
+            type: string
+          description: AI-suggested tags
+        
+        category:
+          type: string
+          description: Primary category classification
+        
+        sentiment:
+          type: number
+          format: float
+          minimum: -1
+          maximum: 1
+          description: Sentiment score (-1 to 1)
+        
+        language:
+          type: string
+          pattern: "^[a-z]{2}$"
+          description: ISO 639-1 language code
+          example: "en"
+        
+        readingTime:
+          type: integer
+          description: Estimated reading time (minutes)
+          example: 5
+        
+        entities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entity'
+
+    # Named entity
+    Entity:
+      type: object
+      required:
+        - text
+        - type
+      properties:
+        text:
+          type: string
+          description: Entity text
+          example: "WebAssembly"
+        
+        type:
+          type: string
+          enum:
+            - PERSON
+            - ORGANIZATION
+            - LOCATION
+            - TECHNOLOGY
+            - PRODUCT
+            - EVENT
+          description: Entity type
+        
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Confidence score
+
+    # Collection of bookmarks
+    Collection:
+      type: object
+      required:
+        - id
+        - name
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Collection identifier
+        
+        name:
+          type: string
+          maxLength: 100
+          description: Collection name
+          example: "Web Development Resources"
+        
+        description:
+          type: string
+          maxLength: 1000
+          description: Collection description
+        
+        icon:
+          type: string
+          description: Emoji or icon identifier
+          example: "📚"
+        
+        color:
+          type: string
+          pattern: "^#[0-9A-Fa-f]{6}$"
+          description: Hex color code
+          example: "#FF5733"
+        
+        query:
+          $ref: '#/components/schemas/SmartQuery'
+        
+        bookmarkIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Manual bookmark IDs
+        
+        public:
+          type: boolean
+          default: false
+          description: Public visibility flag
+        
+        collaborative:
+          type: boolean
+          default: false
+          description: Allow collaboration
+        
+        createdAt:
+          type: string
+          format: date-time
+        
+        updatedAt:
+          type: string
+          format: date-time
+
+    # Smart collection query
+    SmartQuery:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+          description: Required tags
+        
+        excludeTags:
+          type: array
+          items:
+            type: string
+          description: Excluded tags
+        
+        domains:
+          type: array
+          items:
+            type: string
+          description: Domain filter
+        
+        dateRange:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+        
+        searchQuery:
+          type: string
+          description: Full-text search query
+        
+        minScore:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Minimum relevance score
+
+    # Search request
+    SearchRequest:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query text
+          example: "rust async programming"
+        
+        mode:
+          type: string
+          enum:
+            - hybrid
+            - fulltext
+            - semantic
+            - exact
+          default: hybrid
+          description: Search mode
+        
+        filters:
+          $ref: '#/components/schemas/SearchFilters'
+        
+        sort:
+          $ref: '#/components/schemas/SortOptions'
+        
+        pagination:
+          $ref: '#/components/schemas/PaginationOptions'
+        
+        highlight:
+          type: boolean
+          default: true
+          description: Enable result highlighting
+        
+        includeSimilar:
+          type: boolean
+          default: false
+          description: Include similar bookmarks
+
+    # Search filters
+    SearchFilters:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+          description: Filter by tags
+        
+        domains:
+          type: array
+          items:
+            type: string
+          description: Filter by domains
+        
+        dateRange:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+        
+        hasScreenshot:
+          type: boolean
+          description: Has screenshot
+        
+        hasContent:
+          type: boolean
+          description: Has cached content
+        
+        language:
+          type: string
+          pattern: "^[a-z]{2}$"
+          description: Language filter
+
+    # Sort options
+    SortOptions:
+      type: object
+      properties:
+        field:
+          type: string
+          enum:
+            - relevance
+            - createdAt
+            - updatedAt
+            - accessedAt
+            - title
+            - viewCount
+          default: relevance
+        
+        direction:
+          type: string
+          enum:
+            - asc
+            - desc
+          default: desc
+
+    # Pagination options
+    PaginationOptions:
+      type: object
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+          description: Page number
+        
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+          description: Items per page
+        
+        cursor:
+          type: string
+          description: Cursor for cursor-based pagination
+
+    # Search response
+    SearchResponse:
+      type: object
+      required:
+        - results
+        - pagination
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+        
+        facets:
+          $ref: '#/components/schemas/SearchFacets'
+        
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+        
+        totalResults:
+          type: integer
+          description: Total matching results
+        
+        searchTime:
+          type: number
+          format: float
+          description: Search time in milliseconds
+
+    # Individual search result
+    SearchResult:
+      allOf:
+        - $ref: '#/components/schemas/Bookmark'
+        - type: object
+          properties:
+            score:
+              type: number
+              format: float
+              description: Relevance score
+              example: 0.95
+            
+            highlights:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+              description: Highlighted snippets
+
+    # Search facets
+    SearchFacets:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            type: object
+            properties:
+              value:
+                type: string
+              count:
+                type: integer
+        
+        domains:
+          type: array
+          items:
+            type: object
+            properties:
+              value:
+                type: string
+              count:
+                type: integer
+        
+        languages:
+          type: array
+          items:
+            type: object
+            properties:
+              value:
+                type: string
+              count:
+                type: integer
+
+    # Pagination metadata
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Current page
+        
+        limit:
+          type: integer
+          description: Items per page
+        
+        totalPages:
+          type: integer
+          description: Total pages
+        
+        hasNext:
+          type: boolean
+          description: Has next page
+        
+        hasPrev:
+          type: boolean
+          description: Has previous page
+        
+        nextCursor:
+          type: string
+          description: Next page cursor
+
+    # Sync request
+    SyncRequest:
+      type: object
+      required:
+        - deviceId
+        - bookmarks
+      properties:
+        deviceId:
+          type: string
+          description: Device identifier
+        
+        lastSyncVersion:
+          type: integer
+          description: Last known sync version
+        
+        bookmarks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bookmark'
+          description: Local bookmarks to sync
+
+    # Sync response
+    SyncResponse:
+      type: object
+      required:
+        - bookmarks
+        - syncVersion
+      properties:
+        bookmarks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bookmark'
+          description: Merged bookmarks
+        
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncConflict'
+          description: Unresolved conflicts
+        
+        syncVersion:
+          type: integer
+          description: New sync version
+        
+        deletedIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Deleted bookmark IDs
+
+    # Sync conflict
+    SyncConflict:
+      type: object
+      required:
+        - bookmarkId
+        - local
+        - remote
+      properties:
+        bookmarkId:
+          type: string
+          format: uuid
+        
+        local:
+          $ref: '#/components/schemas/Bookmark'
+        
+        remote:
+          $ref: '#/components/schemas/Bookmark'
+        
+        suggestedResolution:
+          type: string
+          enum:
+            - keepLocal
+            - keepRemote
+            - merge
+          description: AI-suggested resolution
+
+    # Error response
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Error code
+              example: "INVALID_REQUEST"
+            
+            message:
+              type: string
+              description: Human-readable message
+              example: "The request payload is invalid"
+            
+            details:
+              type: object
+              additionalProperties: true
+              description: Additional error details
+            
+            requestId:
+              type: string
+              description: Request tracking ID
+
+# ====================
+# API Endpoints
+# ====================
+paths:
+  /bookmarks:
+    get:
+      summary: List bookmarks
+      operationId: listBookmarks
+      tags: [Bookmarks]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/SortParam'
+      responses:
+        200:
+          description: Bookmark list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookmarks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Bookmark'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+    
+    post:
+      summary: Create bookmark
+      operationId: createBookmark
+      tags: [Bookmarks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+                title:
+                  type: string
+                description:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                autoFetch:
+                  type: boolean
+                  default: true
+      responses:
+        201:
+          description: Bookmark created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bookmark'
+
+  /bookmarks/{id}:
+    get:
+      summary: Get bookmark
+      operationId: getBookmark
+      tags: [Bookmarks]
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        200:
+          description: Bookmark details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bookmark'
+    
+    put:
+      summary: Update bookmark
+      operationId: updateBookmark
+      tags: [Bookmarks]
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Bookmark'
+      responses:
+        200:
+          description: Bookmark updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bookmark'
+    
+    delete:
+      summary: Delete bookmark
+      operationId: deleteBookmark
+      tags: [Bookmarks]
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        204:
+          description: Bookmark deleted
+
+  /search:
+    post:
+      summary: Search bookmarks
+      operationId: searchBookmarks
+      tags: [Search]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        200:
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+
+  /sync:
+    post:
+      summary: Sync bookmarks
+      operationId: syncBookmarks
+      tags: [Sync]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequest'
+      responses:
+        200:
+          description: Sync complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResponse'
+
+  /collections:
+    get:
+      summary: List collections
+      operationId: listCollections
+      tags: [Collections]
+      responses:
+        200:
+          description: Collection list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  collections:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Collection'
+    
+    post:
+      summary: Create collection
+      operationId: createCollection
+      tags: [Collections]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Collection'
+      responses:
+        201:
+          description: Collection created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collection'
+
+# ====================
+# Common Parameters
+# ====================
+  parameters:
+    BookmarkId:
+      name: id
+      in: path
+      required: true
+      description: Bookmark ID
+      schema:
+        type: string
+        format: uuid
+    
+    PageParam:
+      name: page
+      in: query
+      description: Page number
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    
+    LimitParam:
+      name: limit
+      in: query
+      description: Items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    
+    SortParam:
+      name: sort
+      in: query
+      description: Sort field and direction
+      schema:
+        type: string
+        pattern: "^[a-zA-Z]+:(asc|desc)$"
+        example: "createdAt:desc"
+
+# ====================
+# Security Schemes
+# ====================
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT authentication token
+    
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key authentication
+
+security:
+  - BearerAuth: []
+  - ApiKey: []
+
+# ====================
+# Webhooks
+# ====================
+webhooks:
+  bookmarkCreated:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                  const: bookmark.created
+                data:
+                  $ref: '#/components/schemas/Bookmark'
+                timestamp:
+                  type: string
+                  format: date-time
+  
+  bookmarkUpdated:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                  const: bookmark.updated
+                data:
+                  $ref: '#/components/schemas/Bookmark'
+                timestamp:
+                  type: string
+                  format: date-time
+  
+  syncCompleted:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                  const: sync.completed
+                data:
+                  type: object
+                  properties:
+                    deviceId:
+                      type: string
+                    syncVersion:
+                      type: integer
+                    bookmarksUpdated:
+                      type: integer
+                timestamp:
+                  type: string
+                  format: date-time
