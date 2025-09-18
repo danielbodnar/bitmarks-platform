@@ -667,4 +667,4 @@ The system's architecture prioritizes user privacy, data portability, and extens
 
 ---
 
-*This whitepaper is version 1.0 and will be updated as the system evolves. For the latest version, visit https://bitmarks.io/whitepaper*
+*This whitepaper is version 1.0 and will be updated as the system evolves. For the latest version, visit https://docs.bitmarks.io/whitepaper*
